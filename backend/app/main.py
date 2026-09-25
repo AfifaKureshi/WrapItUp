@@ -30,7 +30,11 @@ from .security import current_user, dummy_hash, hasher, limit_auth, reviewer, to
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Schema is managed by Alembic; no implicit production table creation.
+    # Schema is managed by Alembic in production; auto-create tables in development.
+    if settings().app_env != "production":
+        from .database import Base, engine
+        from . import workspace_models  # register workspace tables
+        Base.metadata.create_all(bind=engine)
     if settings().seed_demo:
         if not settings().demo_password:
             raise RuntimeError("Set DEMO_PASSWORD before enabling SEED_DEMO")

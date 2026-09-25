@@ -6,10 +6,6 @@ from threading import Lock
 import joblib
 import numpy as np
 from fastapi import HTTPException
-from sklearn.dummy import DummyRegressor
-from sklearn.ensemble import RandomForestRegressor
-from sklearn.metrics import mean_absolute_error
-from sklearn.model_selection import GroupShuffleSplit
 from sqlalchemy import select
 
 from .config import settings
@@ -42,6 +38,13 @@ def train(db):
             groups.append(f"{trial.owner_id}:{trial.study_id}")
         if len(x) < 30 or len(set(groups)) < 5:
             raise HTTPException(422, "At least 30 reviewed, non-demo, uncensored trial outcomes across 5 independent studies are required.")
+        try:
+            from sklearn.dummy import DummyRegressor
+            from sklearn.ensemble import RandomForestRegressor
+            from sklearn.metrics import mean_absolute_error
+            from sklearn.model_selection import GroupShuffleSplit
+        except ImportError:
+            raise HTTPException(503, "scikit-learn is required for experimental ML training. Install it with pip install scikit-learn.")
         x, y = np.array(x), np.array(y)
         train_idx, test_idx = next(GroupShuffleSplit(n_splits=1, test_size=0.25, random_state=42).split(x, y, groups))
         model = RandomForestRegressor(n_estimators=120, min_samples_leaf=3, random_state=42, n_jobs=1)
