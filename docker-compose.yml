@@ -1,0 +1,37 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: packwise
+      POSTGRES_USER: packwise
+      POSTGRES_PASSWORD: packwise
+    ports:
+      - "5432:5432"
+    volumes:
+      - packwise_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U packwise -d packwise"]
+      interval: 5s
+      timeout: 5s
+      retries: 15
+  backend:
+    build: ./backend
+    environment:
+      APP_ENV: development
+      DATABASE_URL: postgresql+psycopg://packwise:packwise@postgres:5432/packwise
+      SECRET_KEY: local-docker-secret-change-this-before-deployment
+      CORS_ORIGINS: '["http://localhost:8080","http://127.0.0.1:8080"]'
+      SEED_DEMO: "true"
+      DEMO_PASSWORD: PackWiseDemo123!
+      MODEL_DIRECTORY: /app/models
+      MODEL_ADAPTER: ""
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - packwise_models:/app/models
+volumes:
+  packwise_pgdata:
+  packwise_models:

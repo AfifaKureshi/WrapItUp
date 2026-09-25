@@ -1,0 +1,119 @@
+name: Build & Release Android APK
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    tags:
+      - 'v*'
+  pull_request:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+    inputs:
+      default_api_url:
+        description: 'Default backend API URL baked into APK'
+        required: false
+        default: 'http://10.0.2.2:8000'
+      create_release:
+        description: 'Create a GitHub Release with this APK'
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+jobs:
+  build-apk:
+    name: Build Android APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java Development Kit (JDK 17)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+          cache: 'gradle'
+
+      - name: Set up Flutter SDK
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      - name: Verify Flutter Installation
+        run: flutter doctor -v
+
+      - name: Generate Android platform runner files if missing
+        working-directory: ./frontend
+        run: |
+          if [ ! -d "android" ]; then
+            echo "Generating Android platform runner files..."
+            flutter create --project-name packwise --org com.packwise --platforms=android .
+          fi
+
+      - name: Configure Android permissions & cleartext HTTP traffic
+        working-directory: ./frontend
+        run: |
+          MANIFEST="android/app/src/main/AndroidManifest.xml"
+          if [ -f "$MANIFEST" ]; then
+            echo "Patching $MANIFEST for network & microphone permissions..."
+            # Ensure INTERNET permission
+            if ! grep -q "android.permission.INTERNET" "$MANIFEST"; then
+              sed -i '/<manifest/a \    <uses-permission android:name="android.permission.INTERNET"/>\n    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>\n    <uses-permission android:name="android.permission.RECORD_AUDIO"/>' "$MANIFEST"
+            fi
+            # Ensure usesCleartextTraffic="true"
+            if ! grep -q "usesCleartextTraffic" "$MANIFEST"; then
+              sed -i 's/<application/<application android:usesCleartextTraffic="true"/' "$MANIFEST"
+            fi
+          fi
+
+      - name: Install dependencies
+        working-directory: ./frontend
+        run: flutter pub get
+
+      - name: Build Release APK
+        working-directory: ./frontend
+        env:
+          API_URL: ${{ github.event.inputs.default_api_url || 'http://10.0.2.2:8000' }}
+        run: |
+          flutter build apk --release --dart-define=API_URL="$API_URL"
+          cp build/app/outputs/flutter-apk/app-release.apk build/app/outputs/flutter-apk/WrapItUp-release.apk
+
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: WrapItUp-Android-APK
+          path: frontend/build/app/outputs/flutter-apk/WrapItUp-release.apk
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v') || (github.ref == 'refs/heads/main' && (github.event.inputs.create_release != 'false'))
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || 'latest' }}
+          name: ${{ startsWith(github.ref, 'refs/tags/v') && format('Release {0}', github.ref_name) || 'WrapItUp - Latest Android APK' }}
+          body: |
+            ### WrapItUp — Packaging Intelligence App (Android APK)
+            
+            This release includes the compiled Android APK for **WrapItUp**.
+            
+            #### How to Install:
+            1. Download `WrapItUp-release.apk` below.
+            2. On your Android device, tap the downloaded APK to install.
+            3. If prompted, allow "Install from unknown sources" for your browser or file manager.
+            4. Open the app, and configure your server URL if connecting to a remote or local machine!
+            
+            **Commit**: `${{ github.sha }}`
+          files: frontend/build/app/outputs/flutter-apk/WrapItUp-release.apk
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
