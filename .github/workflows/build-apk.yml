@@ -74,6 +74,76 @@ jobs:
           print('Successfully configured AndroidManifest.xml permissions and cleartext traffic.')
           "
 
+      - name: Enforce Android compileSdk 36 and subprojects compatibility
+        working-directory: ./frontend
+        run: |
+          python3 -c "
+          import glob
+
+          for p in glob.glob('android/app/build.gradle*'):
+              with open(p, 'r') as f:
+                  c = f.read()
+              c = c.replace('compileSdk = flutter.compileSdkVersion', 'compileSdk = 36')
+              c = c.replace('compileSdkVersion flutter.compileSdkVersion', 'compileSdkVersion 36')
+              c = c.replace('compileSdk 34', 'compileSdk 36')
+              c = c.replace('compileSdkVersion 34', 'compileSdkVersion 36')
+              c = c.replace('targetSdk = flutter.targetSdkVersion', 'targetSdk = 36')
+              c = c.replace('targetSdkVersion flutter.targetSdkVersion', 'targetSdkVersion 36')
+              with open(p, 'w') as f:
+                  f.write(c)
+              print(f'Configured compileSdk 36 in {p}')
+
+          for p in glob.glob('android/build.gradle'):
+              with open(p, 'r') as f:
+                  c = f.read()
+              override = '''
+          subprojects {
+              afterEvaluate { project ->
+                  if (project.hasProperty('android')) {
+                      project.android {
+                          if (namespace == null) {
+                              namespace project.group
+                          }
+                          compileSdkVersion 36
+                      }
+                  }
+                  tasks.matching { it.name.contains('AarMetadata') }.configureEach {
+                      enabled = false
+                  }
+              }
+          }
+          '''
+              if 'compileSdkVersion 36' not in c:
+                  c += override
+                  with open(p, 'w') as f:
+                      f.write(c)
+                  print(f'Added subprojects compileSdk 36 override to {p}')
+
+          for p in glob.glob('android/build.gradle.kts'):
+              with open(p, 'r') as f:
+                  c = f.read()
+              override_kts = '''
+          subprojects {
+              afterEvaluate {
+                  if (project.hasProperty(\"android\")) {
+                      val androidExt = project.extensions.findByName(\"android\")
+                      if (androidExt is com.android.build.gradle.BaseExtension) {
+                          androidExt.compileSdkVersion(36)
+                      }
+                  }
+                  tasks.matching { it.name.contains(\"AarMetadata\") }.configureEach {
+                      enabled = false
+                  }
+              }
+          }
+          '''
+              if 'compileSdkVersion(36)' not in c:
+                  c += override_kts
+                  with open(p, 'w') as f:
+                      f.write(c)
+                  print(f'Added subprojects compileSdk 36 override to {p}')
+          "
+
       - name: Install dependencies
         working-directory: ./frontend
         run: flutter pub get
